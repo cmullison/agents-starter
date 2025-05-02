@@ -15,11 +15,11 @@ import { tools, executions } from "./tools";
 import { AsyncLocalStorage } from "node:async_hooks";
 // import { env } from "cloudflare:workers";
 
-const model = openai("gpt-4o-2024-11-20");
+const model = openai("gpt-4.1-2025-04-14");
 // Cloudflare AI Gateway
 // const openai = createOpenAI({
-//   apiKey: env.OPENAI_API_KEY,
-//   baseURL: env.GATEWAY_BASE_URL,
+// apiKey: env.OPENAI_API_KEY,
+// baseURL: env.GATEWAY_BASE_URL,
 // });
 
 // we use ALS to expose the agent context to the tools
@@ -51,7 +51,7 @@ export class Chat extends AIChatAgent<Env> {
           // Stream the AI response using GPT-4
           const result = streamText({
             model,
-            system: `You are a helpful assistant that can do various tasks... 
+            system: `You are a helpful assistant that can do various tasks...
 
 ${unstable_getSchedulePrompt({ date: new Date() })}
 
