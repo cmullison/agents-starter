@@ -6,6 +6,9 @@
     "nodejs_compat",
     "nodejs_compat_populate_process_env"
   ],
+    "browser": {
+    "binding": "MYBROWSER"
+  },
   "assets": {
     "directory": "dist"
   },

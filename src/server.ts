@@ -9,13 +9,14 @@ import {
   streamText,
   type StreamTextOnFinishCallback,
 } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { openai as openaiClient } from "@ai-sdk/openai";
 import { processToolCalls } from "./utils";
 import { tools, executions } from "./tools";
 import { AsyncLocalStorage } from "node:async_hooks";
+import puppeteer from "@cloudflare/puppeteer";
 // import { env } from "cloudflare:workers";
 
-const model = openai("gpt-4.1-2025-04-14");
+const model = openaiClient("gpt-4.1-2025-04-14");
 // Cloudflare AI Gateway
 // const openai = createOpenAI({
 // apiKey: env.OPENAI_API_KEY,
@@ -84,6 +85,39 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
         createdAt: new Date(),
       },
     ]);
+  }
+  /**
+   * Browse the web using the Browser Rendering API and extract structured data from pages.
+   * @param browserInstance - The browser fetcher instance (from env.MYBROWSER)
+   * @param urls - Array of URLs to browse
+   */
+  async browse(browserInstance: Fetcher, urls: string[]): Promise<unknown[]> {
+    const responses: unknown[] = [];
+    for (const url of urls) {
+      const browser = await puppeteer.launch(browserInstance);
+      const page = await browser.newPage();
+      await page.goto(url);
+      await page.waitForSelector("body");
+      const bodyContent = await page.$eval("body", (element) => element.innerHTML);
+      const prompt = `Return a JSON object with the product names, prices and URLs with the following format: { "name": "Product Name", "price": "Price", "url": "URL" } from the website content below. <content>${bodyContent}</content>`;
+      // Use streamText to call the model, as in the rest of the agent
+      const result = await streamText({
+        model,
+        messages: [
+          { role: "user", content: prompt },
+        ],
+      });
+      responses.push(result);
+      await browser.close();
+    }
+    return responses;
+  }
+  /**
+   * Public getter for the browser instance (MYBROWSER) from env
+   */
+  public getBrowserInstance() {
+    // @ts-ignore
+    return this.env?.MYBROWSER;
   }
 }
 

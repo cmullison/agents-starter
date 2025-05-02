@@ -128,6 +128,24 @@ export const tools = {
   scheduleTask,
   getScheduledTasks,
   cancelScheduledTask,
+  browse: tool({
+    description: "Browse the web and extract structured data from a list of URLs.",
+    parameters: z.object({ urls: z.array(z.string()) }),
+    execute: async ({ urls }) => {
+      const agent = agentContext.getStore();
+      if (!agent || typeof agent.browse !== 'function') {
+        throw new Error("No agent with a browse method found");
+      }
+      try {
+        const browserInstance = agent.getBrowserInstance?.();
+        const result = await agent.browse(browserInstance, urls);
+        return result;
+      } catch (error) {
+        console.error("Error during browsing", error);
+        return `Error during browsing: ${error}`;
+      }
+    },
+  }),
 };
 
 /**
