@@ -94,21 +94,19 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
   async browse(browserInstance: Fetcher, urls: string[]): Promise<unknown[]> {
     const responses: unknown[] = [];
     for (const url of urls) {
-      const browser = await puppeteer.launch(browserInstance);
-      const page = await browser.newPage();
-      await page.goto(url);
-      await page.waitForSelector("body");
-      const bodyContent = await page.$eval("body", (element) => element.innerHTML);
-      const prompt = `Return a JSON object with the product names, prices and URLs with the following format: { "name": "Product Name", "price": "Price", "url": "URL" } from the website content below. <content>${bodyContent}</content>`;
-      // Use streamText to call the model, as in the rest of the agent
-      const result = await streamText({
-        model,
-        messages: [
-          { role: "user", content: prompt },
-        ],
-      });
-      responses.push(result);
-      await browser.close();
+      try {
+        const browser = await puppeteer.launch(browserInstance);
+        const page = await browser.newPage();
+        await page.goto(url);
+        await page.waitForSelector("body");
+        // Extract all links
+        const links = await page.$$eval('a', as => as.map(a => a.href));
+        responses.push(links);
+        await browser.close();
+      } catch (error) {
+        console.error(`Error browsing URL ${url}:`, error);
+        responses.push(`Error browsing URL ${url}: ${error}`);
+      }
     }
     return responses;
   }

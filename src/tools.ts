@@ -118,6 +118,45 @@ const cancelScheduledTask = tool({
   },
 });
 
+const findGolfCourseWebsite = tool({
+  description: "Find the official website URL of a golf course by searching Google",
+  parameters: z.object({ courseName: z.string() }),
+  execute: async ({ courseName }) => {
+    const agent = agentContext.getStore();
+    if (!agent || typeof agent.browse !== "function") {
+      throw new Error("No agent with a browse method found");
+    }
+    try {
+      const query = encodeURIComponent(`${courseName} golf course official website`);
+      const googleSearchUrl = `https://www.google.com/search?q=${query}`;
+
+      // Use optional chaining here as linter suggests
+      const browserInstance = agent.getBrowserInstance?.();
+      if (!browserInstance) {
+        throw new Error("Browser instance (MYBROWSER) not found in agent environment");
+      }
+
+      const searchResults = await agent.browse(browserInstance, [googleSearchUrl]);
+
+      // Assert that searchResults[0] is a string (or array of strings if your browse returns links)
+      const htmlContent = searchResults[0] as string | undefined;
+      if (!htmlContent) {
+        return "No content returned from browsing Google search results.";
+      }
+
+      // Extract first URL using regex
+      const urlMatch = htmlContent.match(/<a href="\/url\?q=(https?:\/\/[^&"]+)/);
+      if (urlMatch?.[1]) {
+        return urlMatch[1];
+      }
+      return "No golf course website URL found in search results.";
+    } catch (error) {
+      console.error("Error finding golf course website", error);
+      return `Error finding golf course website: ${error}`;
+    }
+  },
+});
+
 /**
  * Export all available tools
  * These will be provided to the AI model to describe available capabilities
@@ -129,7 +168,7 @@ export const tools = {
   getScheduledTasks,
   cancelScheduledTask,
   browse: tool({
-    description: "Browse the web and extract structured data from a list of URLs.",
+    description: "Browse the web and extract structured data.",
     parameters: z.object({ urls: z.array(z.string()) }),
     execute: async ({ urls }) => {
       const agent = agentContext.getStore();
@@ -138,6 +177,9 @@ export const tools = {
       }
       try {
         const browserInstance = agent.getBrowserInstance?.();
+        if (!browserInstance) {
+          throw new Error("Browser instance (MYBROWSER) not found in agent environment");
+        }
         const result = await agent.browse(browserInstance, urls);
         return result;
       } catch (error) {
@@ -146,6 +188,7 @@ export const tools = {
       }
     },
   }),
+  findGolfCourseWebsite,
 };
 
 /**
