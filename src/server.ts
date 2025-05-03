@@ -105,7 +105,7 @@ export class Chat extends AIChatAgent<Env> {
    * @param browserInstance - The browser fetcher instance (from env.MYBROWSER)
    * @param urls - Array of URLs to browse
    */
-  async browse(browserInstance: Fetcher, urls: string[]): Promise<unknown[]> {
+  async browse(browserInstance: Fetcher, urls: string[], options: { returnHtml?: boolean } = {}): Promise<unknown[]> {
     const responses: unknown[] = [];
     for (const url of urls) {
       try {
@@ -113,9 +113,14 @@ export class Chat extends AIChatAgent<Env> {
         const page = await browser.newPage();
         await page.goto(url);
         await page.waitForSelector("body");
-        // Extract all links
-        const links = await page.$$eval('a', as => as.map(a => a.href));
-        responses.push(links);
+        if (options.returnHtml) {
+          const html = await page.content();
+          responses.push(html);
+        } else {
+          // Extract all links
+          const links = await page.$$eval('a', as => as.map(a => a.href));
+          responses.push(links);
+        }
         await browser.close();
       } catch (error) {
         console.error(`Error browsing URL ${url}:`, error);

@@ -138,9 +138,7 @@ const findGolfCourseWebsite = tool({
         throw new Error("Browser instance (MYBROWSER) not found in agent environment");
       }
 
-      const searchResults = await agent.browse(browserInstance, [googleSearchUrl]);
-
-      // Assert that searchResults[0] is a string (or array of strings if your browse returns links)
+      const searchResults = await agent.browse(browserInstance, [googleSearchUrl], { returnHtml: true });
       const htmlContent = searchResults[0] as string | undefined;
       if (!htmlContent) {
         return "No content returned from browsing Google search results.";
@@ -188,7 +186,7 @@ const findTeeTimes = tool({
         throw new Error("Browser instance not found in agent environment");
       }
 
-      const searchResults = await agent.browse(browserInstance, [googleSearchUrl]);
+      const searchResults = await agent.browse(browserInstance, [googleSearchUrl], { returnHtml: true });
       const htmlContent = searchResults[0] as string | undefined;
       if (!htmlContent) {
         console.log("[findTeeTimes] No content returned from browsing Google search results.");
