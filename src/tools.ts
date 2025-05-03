@@ -4,6 +4,8 @@
  */
 import { tool } from "ai";
 import { z } from "zod";
+// biome-ignore lint/style/useImportType: <explanation>
+import { Browser, Page } from "@cloudflare/puppeteer";
 
 import { agentContext } from "./server";
 import {
@@ -157,6 +159,184 @@ const findGolfCourseWebsite = tool({
   },
 });
 
+const findTeeTimes = tool({
+  description: "Find the tee times page URL for a golf course, optionally for a specific date",
+  parameters: z.object({
+    courseName: z.string(),
+    date: z.string().optional(), // ISO date string, e.g. "2024-06-01"
+  }),
+  execute: async ({ courseName, date }) => {
+    const agent = agentContext.getStore();
+    if (!agent || typeof agent.browse !== "function") {
+      throw new Error("No agent with a browse method found");
+    }
+
+    function extractCourseUrl(html: string): string | null {
+      const match = html.match(/<a href="\/url\?q=(https?:\/\/[^&"]+)/);
+      return match ? match[1] : null;
+    }
+
+    try {
+      console.log(`[findTeeTimes] Starting search for course: ${courseName}, date: ${date}`);
+
+      const query = encodeURIComponent(`${courseName} golf course official website`);
+      const googleSearchUrl = `https://www.google.com/search?q=${query}`;
+      console.log(`[findTeeTimes] Google search URL: ${googleSearchUrl}`);
+
+      const browserInstance = agent.getBrowserInstance?.();
+      if (!browserInstance) {
+        throw new Error("Browser instance not found in agent environment");
+      }
+
+      const searchResults = await agent.browse(browserInstance, [googleSearchUrl]);
+      const htmlContent = searchResults[0] as string | undefined;
+      if (!htmlContent) {
+        console.log("[findTeeTimes] No content returned from browsing Google search results.");
+        return "No content returned from browsing Google search results.";
+      }
+      console.log("[findTeeTimes] Google search results received.");
+
+      const courseUrl = extractCourseUrl(htmlContent);
+      if (!courseUrl) {
+        console.log("[findTeeTimes] No golf course website URL found in search results.");
+        return "No golf course website URL found in search results.";
+      }
+      console.log(`[findTeeTimes] Extracted course URL: ${courseUrl}`);
+
+      const browser = agent.getBrowserInstance?.() as unknown as Browser;
+      if (!browser) {
+        throw new Error("Browser instance (Puppeteer) not found in agent environment");
+      }
+
+      let page: Page | null = null;
+      try {
+        page = await browser.newPage();
+        console.log("[findTeeTimes] New page opened, navigating to course URL...");
+        await page.goto(courseUrl, { waitUntil: "domcontentloaded" });
+        console.log("[findTeeTimes] Page loaded.");
+
+        const linkSelectors = ["a", "button"];
+        let teeTimesHref: string | null = null;
+
+        for (const selector of linkSelectors) {
+          console.log(`[findTeeTimes] Waiting for selector: ${selector}`);
+          try {
+            await page.waitForSelector(selector, { timeout: 5000, visible: true });
+          } catch {
+            console.log(`[findTeeTimes] No elements found for selector: ${selector}`);
+            continue;
+          }
+
+          teeTimesHref = await page.evaluate((sel) => {
+            const elements = Array.from(document.querySelectorAll(sel));
+            const regex = /tee times|book(ing)? tee times|reserve/i;
+            for (const el of elements) {
+              if (regex.test(el.textContent || "")) {
+                if (el.tagName.toLowerCase() === "a") {
+                  return (el as HTMLAnchorElement).href;
+                // biome-ignore lint/style/noUselessElse: <explanation>
+                } else if (el.tagName.toLowerCase() === "button") {
+                  const linkInside = el.querySelector("a");
+                  if (linkInside) return (linkInside as HTMLAnchorElement).href;
+                  return null;
+                }
+              }
+            }
+            return null;
+          }, selector);
+
+          console.log(`[findTeeTimes] teeTimesHref found for selector ${selector}: ${teeTimesHref}`);
+
+          if (teeTimesHref) break;
+        }
+
+        if (!teeTimesHref) {
+          console.log("[findTeeTimes] No href found, attempting to click button/link with matching text...");
+          const clicked = await page.evaluate(() => {
+            const regex = /tee times|book(ing)? tee times|reserve/i;
+            const elements = Array.from(document.querySelectorAll("a,button"));
+            for (const el of elements) {
+              if (regex.test(el.textContent || "")) {
+                (el as HTMLElement).click();
+                return true;
+              }
+            }
+            return false;
+          });
+          console.log(`[findTeeTimes] Clicked: ${clicked}`);
+          if (!clicked) {
+            return "No tee times link or button found on the landing page.";
+          }
+          console.log("[findTeeTimes] Waiting for navigation after click...");
+          await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10000 });
+          console.log("[findTeeTimes] Navigation after click complete.");
+        } else {
+          console.log(`[findTeeTimes] Navigating directly to tee times href: ${teeTimesHref}`);
+          await page.goto(teeTimesHref, { waitUntil: "domcontentloaded" });
+          console.log("[findTeeTimes] Navigation to tee times href complete.");
+        }
+
+        if (date) {
+          console.log(`[findTeeTimes] Date provided: ${date}, attempting to set date...`);
+          const dateSelectors = [
+            'input[type="date"]',
+            'input[name*="date"]',
+            'input[id*="date"]',
+            '.datepicker',
+            '.date-picker',
+            '[aria-label*="date"]',
+          ];
+
+          let dateSet = false;
+          for (const sel of dateSelectors) {
+            try {
+              console.log(`[findTeeTimes] Trying date selector: ${sel}`);
+              await page.waitForSelector(sel, { timeout: 3000, visible: true });
+              const isInput = await page.$eval(sel, el => el.tagName.toLowerCase() === "input");
+              if (isInput) {
+                await page.$eval(sel, (el, value) => {
+                  (el as HTMLInputElement).value = value;
+                  el.dispatchEvent(new Event("input", { bubbles: true }));
+                  el.dispatchEvent(new Event("change", { bubbles: true }));
+                }, date);
+                console.log(`[findTeeTimes] Date set using selector: ${sel}`);
+                dateSet = true;
+                break;
+              }
+            } catch (e) {
+              console.log(`[findTeeTimes] Failed to set date with selector ${sel}: ${e}`);
+              // biome-ignore lint/correctness/noUnnecessaryContinue: <explanation>
+              continue;
+            }
+          }
+
+          if (dateSet) {
+            console.log("[findTeeTimes] Waiting 2 seconds after setting date...");
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } else {
+            console.log("[findTeeTimes] Could not set date on page.");
+          }
+        }
+
+        const finalUrl = page.url();
+        console.log(`[findTeeTimes] Final URL: ${finalUrl}`);
+        return finalUrl;
+
+      } catch (error) {
+        console.error("[findTeeTimes] Error finding tee times", error);
+        return `Error finding tee times: ${error}`;
+      } finally {
+        if (page) {
+          await page.close();
+          console.log("[findTeeTimes] Page closed.");
+        }
+      }
+    } catch (error) {
+      console.error("[findTeeTimes] Unexpected error", error);
+      return `Unexpected error: ${error}`;
+    }
+  },
+});
 /**
  * Export all available tools
  * These will be provided to the AI model to describe available capabilities
@@ -189,6 +369,7 @@ export const tools = {
     },
   }),
   findGolfCourseWebsite,
+  findTeeTimes,
 };
 
 /**
