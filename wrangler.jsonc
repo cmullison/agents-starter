@@ -1,10 +1,13 @@
 {
-  "name": "my-chat-agent",
+  "name": "dash-agent",
   "main": "src/server.ts",
-  "compatibility_date": "2025-02-04",
+  "compatibility_date": "2025-05-11",
   "compatibility_flags": [
     "nodejs_compat",
     "nodejs_compat_populate_process_env"
+  ],
+    "routes": [
+    { "pattern": "mulls.io/agents/*", "custom_domain": false }
   ],
     "browser": {
     "binding": "MYBROWSER"
@@ -15,15 +18,15 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "Chat",
-        "class_name": "Chat"
+        "name": "DashAgent",
+        "class_name": "DashAgent"
       }
     ]
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Chat"]
+      "new_sqlite_classes": ["DashAgent"]
     }
   ]
 }

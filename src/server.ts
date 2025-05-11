@@ -10,26 +10,27 @@ import {
   type StreamTextOnFinishCallback,
 } from "ai";
 import { openai as openaiClient } from "@ai-sdk/openai";
+import { createOpenAI } from "@ai-sdk/openai";
 import { processToolCalls } from "./utils";
 import { tools, executions } from "./tools";
 import { AsyncLocalStorage } from "node:async_hooks";
 import puppeteer from "@cloudflare/puppeteer";
 import type { Message } from "ai";
-// import { env } from "cloudflare:workers";
+import { env } from "cloudflare:workers";
 
-const model = openaiClient("gpt-4.1-2025-04-14");
+const model = openaiClient("gpt-4.1");
 // Cloudflare AI Gateway
-// const openai = createOpenAI({
-// apiKey: env.OPENAI_API_KEY,
-// baseURL: env.GATEWAY_BASE_URL,
-// });
+const openai = createOpenAI({
+apiKey: env.OPENAI_API_KEY,
+baseURL: env.GATEWAY_BASE_URL,
+});
 
 // we use ALS to expose the agent context to the tools
-export const agentContext = new AsyncLocalStorage<Chat>();
+export const agentContext = new AsyncLocalStorage<DashAgent>();
 /**
  * Chat Agent implementation that handles real-time AI chat interactions
  */
-export class Chat extends AIChatAgent<Env> {
+export class DashAgent extends AIChatAgent<Env> {
   /**
    * Handles incoming chat messages and manages the response stream
    * @param onFinish - Callback function executed when streaming completes
@@ -141,25 +142,75 @@ export class Chat extends AIChatAgent<Env> {
 /**
  * Worker entry point that routes incoming requests to the appropriate handler
  */
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:8788",
+  "https://mulls.io",
+  "https://agents.mulls.io",
+  "https://dash.mulls.io"
+];
+
+function withCORS(response: Response, origin: string | null) {
+  if (origin && allowedOrigins.includes(origin)) {
+    const newResponse = new Response(response.body, response);
+    newResponse.headers.set("Access-Control-Allow-Origin", origin);
+    newResponse.headers.set("Access-Control-Allow-Credentials", "true");
+    newResponse.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    newResponse.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    return newResponse;
+  }
+  return response;
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
+    const origin = request.headers.get("Origin");
 
-    if (url.pathname === "/check-open-ai-key") {
-      const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
-      return Response.json({
-        success: hasOpenAIKey,
+    // Handle preflight CORS requests
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": origin && allowedOrigins.includes(origin) ? origin : "",
+          "Access-Control-Allow-Credentials": "true",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
+        }
       });
     }
-    if (!process.env.OPENAI_API_KEY) {
-      console.error(
-        "OPENAI_API_KEY is not set, don't forget to set it locally in .dev.vars, and use `wrangler secret bulk .dev.vars` to upload it to production"
+
+    try {
+      if (url.pathname === "/check-open-ai-key") {
+        const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
+        return withCORS(Response.json({ success: hasOpenAIKey }), origin);
+      }
+      if (!process.env.OPENAI_API_KEY) {
+        console.error(
+          "OPENAI_API_KEY is not set, don't forget to set it locally in .dev.vars, and use `wrangler secret bulk .dev.vars` to upload it to production"
+        );
+      }
+      const response = await routeAgentRequest(request, env);
+      if (response) {
+        return withCORS(response, origin);
+      } else {
+        return withCORS(
+          new Response(JSON.stringify({ error: "Not found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" }
+          }),
+          origin
+        );
+      }
+    } catch (err) {
+      // Always return CORS headers even on error
+      return withCORS(
+        new Response(JSON.stringify({ error: "Internal Server Error" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" }
+        }),
+        origin
       );
     }
-    return (
-      // Route the request to our agent or return 404 if not found
-      (await routeAgentRequest(request, env)) ||
-      new Response("Not found", { status: 404 })
-    );
-  },
+  }
 } satisfies ExportedHandler<Env>;
